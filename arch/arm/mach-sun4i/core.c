@@ -74,6 +74,7 @@ void __init sw_core_map_io(void)
 	iotable_init(sw_io_desc, ARRAY_SIZE(sw_io_desc));
 }
 
+#ifdef CONFIG_SUNXI_IGNORE_ATAG_MEM
 static u32 DRAMC_get_dram_size(void)
 {
 	u32 reg_val;
@@ -104,30 +105,45 @@ static u32 DRAMC_get_dram_size(void)
 
 	return dram_size;
 }
+#endif
 
 static void __init sw_core_fixup(struct machine_desc *desc,
-                  struct tag *tags, char **cmdline,
+                  struct tag *t, char **cmdline,
                   struct meminfo *mi)
 {
-	u32 size;
+	u32 mali, size = 0;
+	int banks = 0;
+#if defined(CONFIG_MALI) || defined(CONFIG_MALI_MODULE)
+	mali = 64;
+#else
+	mali = 0;
+#endif
 
+#ifdef CONFIG_SUNXI_IGNORE_ATAG_MEM
 	size = DRAMC_get_dram_size();
-
-	early_printk("DRAM: %d", size);
 
 	if (size <= 512) {
 		mi->nr_banks = 1;
 		mi->bank[0].start = 0x40000000;
-		mi->bank[0].size = SZ_1M * (size - 64);
+		mi->bank[0].size = SZ_1M * (size - mali);
 	} else {
 		mi->nr_banks = 2;
 		mi->bank[0].start = 0x40000000;
-		mi->bank[0].size = SZ_1M * (512 - 64);
+		mi->bank[0].size = SZ_1M * (512 - mali);
 		mi->bank[1].start = 0x60000000;
 		mi->bank[1].size = SZ_1M * (size - 512);
 	}
-
-	pr_info("Total Detected Memory: %uMB with %d banks\n", size, mi->nr_banks);
+	banks = mi->nr_banks;
+#else
+	for (; t->hdr.size; t = tag_next(t)) if (t->hdr.tag == ATAG_MEM) {
+		size += t->u.mem.size / SZ_1M;
+		if (banks++ == 0)
+			t->u.mem.size -= mali * SZ_1M;
+	}
+#endif
+	pr_info("Total Detected Memory: %uMB with %d banks\n", size, banks);
+	if (mali > 0)
+		pr_info("%u MB reserved for MALI\n", mali);
 }
 
 #define pr_reserve_info(L, START, SIZE) \
